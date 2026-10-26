@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 MAX_TEXT_LENGTH = 10_000
 
@@ -15,6 +15,24 @@ SubmittedText = Annotated[
         max_length=MAX_TEXT_LENGTH,
     ),
 ]
+GeneratedSummary = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=1_000,
+        strict=True,
+    ),
+]
+GeneratedTag = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=50,
+        strict=True,
+    ),
+]
 
 
 class EntryCreate(BaseModel):
@@ -23,6 +41,22 @@ class EntryCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: SubmittedText
+
+
+class GeneratedContent(BaseModel):
+    """Independently validated content returned by the LLM."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: GeneratedSummary
+    tags: list[GeneratedTag] = Field(min_length=3, max_length=3)
+
+    @field_validator("tags")
+    @classmethod
+    def tags_must_be_distinct(cls, tags: list[str]) -> list[str]:
+        if len({tag.casefold() for tag in tags}) != 3:
+            raise ValueError("Tags must be distinct")
+        return tags
 
 
 class EntryResponse(BaseModel):

@@ -11,11 +11,11 @@ entries.
 - [ ] Display a list of saved entries and allow an entry to be opened.
 - [x] Expose a small Python REST API for the frontend.
 - [x] Reject empty text and apply a reasonable input-length limit.
-- [ ] Call one real LLM API and request a concise summary plus exactly three
+- [x] Call one real LLM API and request a concise summary plus exactly three
       relevant tags.
-- [ ] Parse and validate the model output into a predictable structure.
+- [x] Parse and validate the model output into a predictable structure.
 - [x] Persist the original text, summary, and tags in SQLite across restarts.
-- [ ] Gracefully surface at least one LLM failure mode, such as a timeout or
+- [x] Gracefully surface at least one LLM failure mode, such as a timeout or
       malformed output.
 - [x] Add at least one useful automated test for non-AI logic or an API
       endpoint.
@@ -43,11 +43,12 @@ InsightTag/
 |-- backend/
 |   |-- app/
 |   |   |-- __init__.py
+|   |   |-- config.py
 |   |   |-- database.py
 |   |   |-- main.py
+|   |   |-- openrouter.py
 |   |   |-- routes.py
 |   |   |-- schemas.py
-|   |   `-- summarizer.py
 |   |-- tests/test_entries.py
 |   |-- requirements.txt
 |   `-- requirements-dev.txt
@@ -69,10 +70,13 @@ InsightTag/
 cd backend
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+Copy-Item ..\.env.example ..\.env
+# Set OPENROUTER_API_KEY in ..\.env before submitting content.
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-Run the backend tests with `.\.venv\Scripts\python.exe -m pytest -q`. The API
-currently uses a deterministic summarizer stub; a later stage will replace it
-with OpenRouter. React functionality, final documentation, and the screenshot
-will also be added later.
+Run the backend tests with `.\.venv\Scripts\python.exe -m pytest -q`. OpenRouter
+uses `openrouter/free` by default so requests can route to an available free
+model that supports the required structured output. Override it with
+`LLM_MODEL` when a specific model is preferred. React functionality, final
+documentation, and the screenshot will be added later.
