@@ -9,17 +9,17 @@ entries.
 
 - [ ] Provide a frontend text form with loading and error states.
 - [ ] Display a list of saved entries and allow an entry to be opened.
-- [ ] Expose a small Python REST API for the frontend.
-- [ ] Reject empty text and apply a reasonable input-length limit.
+- [x] Expose a small Python REST API for the frontend.
+- [x] Reject empty text and apply a reasonable input-length limit.
 - [ ] Call one real LLM API and request a concise summary plus exactly three
       relevant tags.
 - [ ] Parse and validate the model output into a predictable structure.
-- [ ] Persist the original text, summary, and tags in SQLite across restarts.
+- [x] Persist the original text, summary, and tags in SQLite across restarts.
 - [ ] Gracefully surface at least one LLM failure mode, such as a timeout or
       malformed output.
-- [ ] Add at least one useful automated test for non-AI logic or an API
+- [x] Add at least one useful automated test for non-AI logic or an API
       endpoint.
-- [ ] Keep credentials out of Git and document only required AI configuration
+- [x] Keep credentials out of Git and document only required AI configuration
       names in `.env.example`.
 - [ ] Document local setup, architecture, AI choice, reliability, privacy,
       production next steps, and AI coding-tool usage concisely.
@@ -43,8 +43,12 @@ InsightTag/
 |-- backend/
 |   |-- app/
 |   |   |-- __init__.py
-|   |   `-- main.py
-|   |-- tests/
+|   |   |-- database.py
+|   |   |-- main.py
+|   |   |-- routes.py
+|   |   |-- schemas.py
+|   |   `-- summarizer.py
+|   |-- tests/test_entries.py
 |   |-- requirements.txt
 |   `-- requirements-dev.txt
 |-- frontend/
@@ -59,6 +63,16 @@ InsightTag/
 `-- README.md
 ```
 
-Stage 1 contains scaffolding only. Feature implementation, persistence, LLM
-integration, tests, final setup instructions, and the screenshot will be added
-in later stages.
+## Backend development
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+Run the backend tests with `.\.venv\Scripts\python.exe -m pytest -q`. The API
+currently uses a deterministic summarizer stub; a later stage will replace it
+with OpenRouter. React functionality, final documentation, and the screenshot
+will also be added later.
