@@ -7,8 +7,8 @@ entries.
 
 ## Assignment checklist
 
-- [ ] Provide a frontend text form with loading and error states.
-- [ ] Display a list of saved entries and allow an entry to be opened.
+- [x] Provide a frontend text form with loading and error states.
+- [x] Display a list of saved entries and allow an entry to be opened.
 - [x] Expose a small Python REST API for the frontend.
 - [x] Reject empty text and apply a reasonable input-length limit.
 - [x] Call one real LLM API and request a concise summary plus exactly three
@@ -29,12 +29,12 @@ entries.
 
 ## Minimal architecture
 
-1. The React/Vite client will submit text to `POST /entries` on FastAPI.
+1. The React/Vite client submits text to `POST /entries` on FastAPI.
 2. Pydantic will validate input and the normalized model response.
 3. A small service will call OpenRouter with an explicit JSON-output prompt.
 4. The backend will validate one summary and exactly three tags before saving.
 5. SQLite will store the original text, generated fields, and timestamps.
-6. `GET /entries` and `GET /entries/{id}` will support the list/detail UI.
+6. `GET /entries` and `GET /entries/{id}` populate the list/detail UI.
 
 ## Project structure
 
@@ -55,6 +55,11 @@ InsightTag/
 |-- frontend/
 |   |-- src/
 |   |   |-- App.jsx
+|   |   |-- api.js
+|   |   |-- components/
+|   |   |   |-- EntryDetail.jsx
+|   |   |   |-- EntryForm.jsx
+|   |   |   `-- EntryList.jsx
 |   |   |-- index.css
 |   |   `-- main.jsx
 |   |-- index.html
@@ -78,5 +83,17 @@ Copy-Item ..\.env.example ..\.env
 Run the backend tests with `.\.venv\Scripts\python.exe -m pytest -q`. OpenRouter
 uses `openrouter/free` by default so requests can route to an available free
 model that supports the required structured output. Override it with
-`LLM_MODEL` when a specific model is preferred. React functionality, final
-documentation, and the screenshot will be added later.
+`LLM_MODEL` when a specific model is preferred.
+
+## Frontend development
+
+With the backend running on port 8000, start Vite in a second terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Vite proxies `/entries` requests to `http://127.0.0.1:8000`. Final README
+answers and the end-to-end screenshot will be added in a later stage.
