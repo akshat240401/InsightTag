@@ -10,7 +10,10 @@ from app.config import Settings
 from app.schemas import GeneratedContent
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-API_KEY_PLACEHOLDERS = {"replace-with-your-openrouter-api-key"}
+API_KEY_PLACEHOLDERS = {
+    "replace-with-your-openrouter-api-key",
+    "your-openrouter-api-key",
+}
 
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,48 @@
+{
+  "verification_timestamp": "2026-10-26T18:22:17.554112-04:00",
+  "test_data_classification": "synthetic, non-sensitive",
+  "configured_model": "openai/gpt-4.1-mini",
+  "actual_model": null,
+  "actual_model_note": "Not directly exposed by InsightTag's normal application response path and therefore not asserted.",
+  "api_status": {
+    "result": "passed",
+    "insighttag_http_status": 201,
+    "response_latency_ms": 3198.6
+  },
+  "entry_id": 1,
+  "generated_summary": "The engineering team finished the payment API integration and plans a security review on Thursday, with final testing due Friday. The production launch date remains unconfirmed.",
+  "tags": [
+    "payment API",
+    "security review",
+    "project timeline"
+  ],
+  "output_validation": {
+    "summary_nonblank": true,
+    "tag_count": 3,
+    "distinct_tag_count": 3,
+    "all_tags_nonblank": true
+  },
+  "detail_retrieval": {
+    "http_status": 200,
+    "matches_created_entry": true
+  },
+  "list_retrieval": {
+    "http_status": 200,
+    "created_entry_found": true,
+    "entry_count": 1
+  },
+  "persistence_verification": {
+    "fresh_application_instance": true,
+    "detail_http_status": 200,
+    "detail_matches_created_entry": true,
+    "list_http_status": 200,
+    "created_entry_found_in_list": true,
+    "result": "passed"
+  },
+  "factual_consistency_assessment": "Passed. The summary accurately states that payment API integration was completed, the security review is scheduled for Thursday, final testing is due Friday, and the production launch date remains unconfirmed.",
+  "notes": [
+    "Exactly one paid LLM inference request was made through InsightTag's normal HTTPX transport.",
+    "The verification used an isolated temporary SQLite database and did not access or modify existing application records.",
+    "No API key, authorization header, upstream response body, or sensitive data is recorded."
+  ]
+}
