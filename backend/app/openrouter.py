@@ -7,9 +7,18 @@ import httpx
 from pydantic import SecretStr, ValidationError
 
 from app.config import Settings
+from app.errors import (
+    InvalidModelOutputError,
+    ProviderAuthenticationError,
+    ProviderNotConfiguredError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    ProviderUnavailableError,
+)
 from app.schemas import GeneratedContent
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+FREE_ROUTER_MODEL = "openrouter/free"
 API_KEY_PLACEHOLDERS = {
     "replace-with-your-openrouter-api-key",
     "your-openrouter-api-key",
@@ -44,35 +53,6 @@ RESPONSE_FORMAT: dict[str, Any] = {
     },
 }
 
-
-class LLMError(Exception):
-    """Base class for safe, expected LLM integration failures."""
-
-
-class LLMConfigurationError(LLMError):
-    """Raised when required local LLM configuration is absent."""
-
-
-class LLMTimeoutError(LLMError):
-    """Raised when OpenRouter exceeds the configured timeout."""
-
-
-class LLMRateLimitError(LLMError):
-    """Raised when OpenRouter returns HTTP 429."""
-
-    def __init__(self, retry_after: str | None = None) -> None:
-        super().__init__("OpenRouter rate limit reached")
-        self.retry_after = retry_after
-
-
-class LLMProviderError(LLMError):
-    """Raised for network failures and non-rate-limit provider errors."""
-
-
-class LLMOutputError(LLMError):
-    """Raised when the model response cannot be safely normalized."""
-
-
 class OpenRouterClient:
     """Generate and validate InsightTag content through OpenRouter."""
 
@@ -96,7 +76,7 @@ class OpenRouterClient:
                 "OpenRouter configuration error category=missing_api_key model=%s",
                 self._model,
             )
-            raise LLMConfigurationError("OPENROUTER_API_KEY is not configured")
+            raise ProviderNotConfiguredError()
 
         api_key = self._api_key.get_secret_value().strip()
         if not api_key or api_key in API_KEY_PLACEHOLDERS:
@@ -106,7 +86,7 @@ class OpenRouterClient:
                 category,
                 self._model,
             )
-            raise LLMConfigurationError("OPENROUTER_API_KEY is not configured")
+            raise ProviderNotConfiguredError()
 
         request_body = {
             "model": self._model,
@@ -119,6 +99,8 @@ class OpenRouterClient:
             "temperature": 0.2,
             "max_tokens": 300,
         }
+        if self._model == FREE_ROUTER_MODEL:
+            request_body["provider"] = {"require_parameters": True}
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -140,30 +122,33 @@ class OpenRouterClient:
                 type(exc).__name__,
                 self._model,
             )
-            raise LLMTimeoutError("OpenRouter request timed out") from exc
+            raise ProviderTimeoutError() from exc
         except httpx.RequestError as exc:
             logger.warning(
                 "OpenRouter request failed category=network transport_error=%s model=%s",
                 type(exc).__name__,
                 self._model,
             )
-            raise LLMProviderError("OpenRouter request failed") from exc
+            raise ProviderUnavailableError() from exc
 
         if response.status_code in {
             httpx.codes.REQUEST_TIMEOUT,
             httpx.codes.GATEWAY_TIMEOUT,
         }:
             self._log_upstream_error(response, "timeout")
-            raise LLMTimeoutError("OpenRouter returned a timeout")
+            raise ProviderTimeoutError()
         if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
             self._log_upstream_error(response, "rate_limit")
-            raise LLMRateLimitError(response.headers.get("Retry-After"))
-        if response.status_code == httpx.codes.UNAUTHORIZED:
+            raise ProviderRateLimitError(response.headers.get("Retry-After"))
+        if response.status_code in {
+            httpx.codes.UNAUTHORIZED,
+            httpx.codes.FORBIDDEN,
+        }:
             self._log_upstream_error(response, "authentication")
-            raise LLMConfigurationError("OpenRouter rejected the API key")
+            raise ProviderAuthenticationError()
         if response.is_error:
             self._log_upstream_error(response, "provider")
-            raise LLMProviderError("OpenRouter returned an error")
+            raise ProviderUnavailableError()
 
         return self._parse_response(response)
 
@@ -174,12 +159,12 @@ class OpenRouterClient:
                 raise TypeError("OpenRouter response must be an object")
             if payload.get("error") is not None:
                 self._log_upstream_error(response, "embedded_provider_error")
-                raise LLMProviderError("OpenRouter returned an embedded error")
+                raise ProviderUnavailableError()
             content = payload["choices"][0]["message"]["content"]
             if not isinstance(content, str):
                 raise TypeError("Model content must be a JSON string")
             return GeneratedContent.model_validate_json(content)
-        except LLMProviderError:
+        except ProviderUnavailableError:
             raise
         except (KeyError, IndexError, TypeError, ValueError, ValidationError) as exc:
             logger.warning(
@@ -188,7 +173,7 @@ class OpenRouterClient:
                 type(exc).__name__,
                 self._model,
             )
-            raise LLMOutputError("OpenRouter returned malformed output") from exc
+            raise InvalidModelOutputError() from exc
 
     def _log_upstream_error(
         self,

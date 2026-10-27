@@ -16,12 +16,18 @@ function validationMessage(detail) {
     : null;
 }
 
-function errorMessage(status, detail) {
+function errorMessage(status, payload) {
   if (status === 422) {
-    return validationMessage(detail) || "Please check the submitted text.";
+    return validationMessage(payload?.detail) || "Please check the submitted text.";
   }
 
-  if (typeof detail === "string" && detail.trim()) return detail;
+  const structuredMessage = payload?.error?.message;
+  if (typeof structuredMessage === "string" && structuredMessage.trim()) {
+    return structuredMessage;
+  }
+  if (typeof payload?.detail === "string" && payload.detail.trim()) {
+    return payload.detail;
+  }
   if (status === 404) return "That saved entry could not be found.";
   if (status >= 500) {
     return "The service is temporarily unavailable. Please try again.";
@@ -40,11 +46,14 @@ async function request(path, options = {}) {
         ...options.headers,
       },
     });
-  } catch {
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
     throw new ApiError(
       "Unable to reach the API. Confirm the backend is running and try again.",
     );
   }
+
+  if (response.status === 204) return null;
 
   let payload = null;
   try {
@@ -55,7 +64,7 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     throw new ApiError(
-      errorMessage(response.status, payload?.detail),
+      errorMessage(response.status, payload),
       response.status,
     );
   }
@@ -70,10 +79,18 @@ export function createEntry(text) {
   });
 }
 
-export function getEntries() {
-  return request("/entries");
+export function getEntries(page = 1, pageSize = 10, signal) {
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  return request(`/entries?${query}`, { signal });
 }
 
-export function getEntry(entryId) {
-  return request(`/entries/${entryId}`);
+export function getEntry(entryId, signal) {
+  return request(`/entries/${entryId}`, { signal });
+}
+
+export function deleteEntry(entryId) {
+  return request(`/entries/${entryId}`, { method: "DELETE" });
 }

@@ -8,7 +8,9 @@ function formatDateTime(value) {
 export default function EntryDetail({
   entry,
   error,
+  isDeleting,
   isLoading,
+  onDelete,
   variant = "standard",
 }) {
   const className =
@@ -54,9 +56,22 @@ export default function EntryDetail({
       <div className="detail-header">
         <div>
           <h2 id={`${variant}-summary-title`}>Generated Insight</h2>
-          <p className="entry-reference">Entry #{entry.id}</p>
         </div>
-        <time dateTime={entry.created_at}>{formatDateTime(entry.created_at)}</time>
+        <div className="detail-actions">
+          <time dateTime={entry.created_at}>
+            {formatDateTime(entry.created_at)}
+          </time>
+          {onDelete && (
+            <button
+              className="delete-entry-button"
+              type="button"
+              onClick={(event) => onDelete(entry, event.currentTarget)}
+              disabled={isDeleting}
+            >
+              Delete
+            </button>
+          )}
+        </div>
       </div>
 
       <p className="summary-text">{entry.summary}</p>

@@ -67,3 +67,13 @@ class EntryResponse(BaseModel):
     summary: str = Field(min_length=1)
     tags: list[str] = Field(min_length=3, max_length=3)
     created_at: datetime
+
+
+class PaginatedEntries(BaseModel):
+    """One server-side page of persisted entries."""
+
+    items: list[EntryResponse]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
+    total_pages: int = Field(ge=0)

@@ -71,13 +71,24 @@ def create_entry(
     return _entry_from_row(row)
 
 
-def list_entries(database_path: Path) -> list[dict[str, Any]]:
-    """Return all entries, newest first."""
+def list_entries(
+    database_path: Path,
+    page: int,
+    page_size: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return one newest-first page and the total entry count."""
+    offset = (page - 1) * page_size
     with database_connection(database_path) as connection:
+        total = connection.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
         rows = connection.execute(
-            "SELECT * FROM entries ORDER BY created_at DESC, id DESC"
+            """
+            SELECT * FROM entries
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (page_size, offset),
         ).fetchall()
-    return [_entry_from_row(row) for row in rows]
+    return [_entry_from_row(row) for row in rows], total
 
 
 def get_entry(database_path: Path, entry_id: int) -> dict[str, Any] | None:
@@ -87,6 +98,16 @@ def get_entry(database_path: Path, entry_id: int) -> dict[str, Any] | None:
             "SELECT * FROM entries WHERE id = ?", (entry_id,)
         ).fetchone()
     return _entry_from_row(row) if row is not None else None
+
+
+def delete_entry(database_path: Path, entry_id: int) -> bool:
+    """Delete exactly one entry and report whether it existed."""
+    with database_connection(database_path) as connection:
+        cursor = connection.execute(
+            "DELETE FROM entries WHERE id = ?",
+            (entry_id,),
+        )
+    return cursor.rowcount == 1
 
 
 def _entry_from_row(row: sqlite3.Row) -> dict[str, Any]:

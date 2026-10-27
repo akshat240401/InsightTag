@@ -58,7 +58,6 @@ export default function EntryList({
               aria-pressed={entry.id === selectedId}
             >
               <span className="entry-copy">
-                <span className="entry-reference">Entry #{entry.id}</span>
                 <strong>{entry.summary}</strong>
                 <span className="entry-preview">{entry.original_text}</span>
               </span>
