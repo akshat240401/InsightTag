@@ -8,7 +8,23 @@ InsightTag turns notes, articles, and meeting transcripts into concise AI summar
 
 ### Prerequisites and configuration
 
-Requires Python 3.10+, Node.js `^20.19.0` or `>=22.12.0`, and an OpenRouter key. From the repository root:
+Before running InsightTag, ensure the following are installed:
+
+- **Python:** 3.10 or newer
+- **Node.js:** 22.22.2+ (Node.js 22.x) or 24.15.0+ (Node.js 24.x)
+- **OpenRouter API Key:** Required to generate new AI summaries and tags. The backend can start and retrieve saved entries without a valid key, but `POST /entries` returns HTTP 503 until a valid key is configured.
+
+Verify your installation:
+
+```bash
+python --version
+node --version
+npm --version
+```
+
+**Note:** InsightTag's frontend uses Vite, Vitest, and jsdom. Older Node.js versions may not satisfy all dependencies defined in `package-lock.json`. Use a supported version before running `npm ci`.
+
+From the repository root, create your environment configuration as described below:
 
 **Windows PowerShell**
 
@@ -79,6 +95,7 @@ Open the Vite URL, normally `http://localhost:5173`. Its `/entries` proxy keeps 
 - `DELETE /entries/{entry_id}` permanently removes a confirmed record and returns HTTP 204.
 - Application failures use `{ "error": { "code": "...", "message": "..." } }`; request validation retains FastAPI's HTTP 422 field details.
 
+
 ## Verify
 
 Run backend tests from `backend`:
@@ -95,6 +112,8 @@ Run backend tests from `backend`:
 
 Run frontend checks from `frontend`:
 
+**Windows / macOS:**
+
 ```bash
 npm test
 npx playwright install chromium
@@ -102,7 +121,20 @@ npm run test:e2e
 npm run build
 ```
 
-Current results: **44 automated tests passed**: 25 pytest, 13 Vitest/React Testing Library, and 6 Playwright Chromium; the production build succeeded. Tests mock external boundaries. Genuine OpenRouter checks verified both models. See the [verification report](docs/verification.md) for history and limitations.
+**Linux:**
+
+```bash
+npm test
+npx playwright install --with-deps chromium
+npm run test:e2e
+npm run build
+```
+
+Current results: **44 automated tests passed**: 25 pytest, 13 Vitest/React Testing Library, and 6 Playwright Chromium; the production build succeeded. Tests mock external boundaries.
+
+Successful live OpenRouter checks of `openai/gpt-4.1-mini` and `openrouter/free` were recorded on October 26, 2026. Model availability, pricing, and rate limits may change.
+
+See the [verification report](docs/verification.md) for historical results and limitations.
 
 ## Engineering decisions
 
