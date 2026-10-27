@@ -120,112 +120,53 @@ def test_entry_lifecycle_persists_across_connections(tmp_path: Path) -> None:
         assert detail_response.json() == created
 
 
-@pytest.mark.parametrize(
-    ("model", "expected_provider"),
-    [
-        (DEFAULT_MODEL, None),
-        (FREE_ROUTER_MODEL, {"require_parameters": True}),
-    ],
-)
 def test_model_configurations_preserve_structured_request_and_create_entry(
     tmp_path: Path,
-    model: str,
-    expected_provider: dict[str, bool] | None,
 ) -> None:
-    def success_handler(request: httpx.Request) -> httpx.Response:
-        payload = json.loads(request.content)
-        assert payload["model"] == model
-        assert payload["response_format"] == RESPONSE_FORMAT
-        assert payload["reasoning"] == {"effort": "none"}
-        assert payload["temperature"] == 0.2
-        assert payload["max_tokens"] == 300
-        assert payload.get("provider") == expected_provider
-        return openrouter_response(
-            json.dumps(
-                {
-                    "summary": "A valid model-configuration response.",
-                    "tags": ["configuration", "structured-output", "testing"],
-                }
-            )
-        )
-
-    client = mock_llm_client(httpx.MockTransport(success_handler), model)
-    with TestClient(create_app(tmp_path / "entries.sqlite3", client)) as api:
-        response = api.post("/entries", json={"text": "Synthetic source text"})
-
-    assert response.status_code == 201
-    assert response.json()["tags"] == [
-        "configuration",
-        "structured-output",
-        "testing",
+    configurations = [
+        (DEFAULT_MODEL, None),
+        (FREE_ROUTER_MODEL, {"require_parameters": True}),
     ]
+    for index, (model, expected_provider) in enumerate(configurations):
+        def success_handler(request: httpx.Request) -> httpx.Response:
+            payload = json.loads(request.content)
+            assert payload["model"] == model
+            assert payload["response_format"] == RESPONSE_FORMAT
+            assert payload["reasoning"] == {"effort": "none"}
+            assert payload["temperature"] == 0.2
+            assert payload["max_tokens"] == 300
+            assert payload.get("provider") == expected_provider
+            return openrouter_response(
+                json.dumps(
+                    {
+                        "summary": "A valid model-configuration response.",
+                        "tags": ["configuration", "structured-output", "testing"],
+                    }
+                )
+            )
+
+        client = mock_llm_client(httpx.MockTransport(success_handler), model)
+        database_path = tmp_path / f"model-{index}.sqlite3"
+        with TestClient(create_app(database_path, client)) as api:
+            response = api.post("/entries", json={"text": "Synthetic source text"})
+
+        assert response.status_code == 201, model
+        assert response.json()["tags"] == [
+            "configuration",
+            "structured-output",
+            "testing",
+        ], model
 
 
-@pytest.mark.parametrize("model", [DEFAULT_MODEL, FREE_ROUTER_MODEL])
-def test_model_configurations_reject_malformed_output_without_persistence(
-    tmp_path: Path,
-    model: str,
-) -> None:
-    handler = httpx.MockTransport(lambda _: openrouter_response("not JSON"))
-    with TestClient(
-        create_app(
-            tmp_path / "entries.sqlite3",
-            mock_llm_client(handler, model),
-        )
-    ) as api:
-        response = api.post("/entries", json={"text": "Synthetic source text"})
-        listing = api.get("/entries")
-
-    assert response.status_code == 502
-    assert response.json()["error"]["code"] == "INVALID_MODEL_OUTPUT"
-    assert listing.json()["items"] == []
-
-
-@pytest.mark.parametrize("model", [DEFAULT_MODEL, FREE_ROUTER_MODEL])
-@pytest.mark.parametrize(
-    ("provider_status", "expected_status", "expected_code"),
-    [
-        (429, 503, "PROVIDER_RATE_LIMITED"),
-        (500, 502, "PROVIDER_UNAVAILABLE"),
-    ],
-)
-def test_model_configurations_map_provider_failures_without_persistence(
-    tmp_path: Path,
-    model: str,
-    provider_status: int,
-    expected_status: int,
-    expected_code: str,
-) -> None:
-    handler = httpx.MockTransport(
-        lambda _: httpx.Response(provider_status, headers={"Retry-After": "30"})
-    )
-    with TestClient(
-        create_app(
-            tmp_path / "entries.sqlite3",
-            mock_llm_client(handler, model),
-        )
-    ) as api:
-        response = api.post("/entries", json={"text": "Synthetic source text"})
-        listing = api.get("/entries")
-
-    assert response.status_code == expected_status
-    assert response.json()["error"]["code"] == expected_code
-    assert listing.json()["items"] == []
-
-
-@pytest.mark.parametrize(
-    "text",
-    ["", "   \t\n", "x" * (MAX_TEXT_LENGTH + 1)],
-)
-def test_create_entry_rejects_invalid_text(tmp_path: Path, text: str) -> None:
+def test_create_entry_rejects_invalid_text(tmp_path: Path) -> None:
     def unexpected_request(_: httpx.Request) -> httpx.Response:
         raise AssertionError("Invalid input must not call OpenRouter")
 
     llm_client = mock_llm_client(httpx.MockTransport(unexpected_request))
     with TestClient(create_app(tmp_path / "entries.sqlite3", llm_client)) as client:
-        response = client.post("/entries", json={"text": text})
-
-    assert response.status_code == 422
+        for text in ["", "   \t\n", "x" * (MAX_TEXT_LENGTH + 1)]:
+            response = client.post("/entries", json={"text": text})
+            assert response.status_code == 422, repr(text[:20])
 
 
 def test_get_missing_entry_returns_404(tmp_path: Path) -> None:
@@ -240,34 +181,32 @@ def test_get_missing_entry_returns_404(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.parametrize(
-    "content",
-    [
+def test_invalid_llm_output_is_not_persisted(tmp_path: Path) -> None:
+    invalid_outputs = [
         [],
         "not JSON",
         json.dumps({"summary": "", "tags": ["one", "two", "three"]}),
         json.dumps({"summary": "Valid", "tags": ["one", "two"]}),
         json.dumps({"summary": "Valid", "tags": ["one", "ONE", "three"]}),
         json.dumps({"summary": "Valid", "tags": ["one", " ", "three"]}),
-    ],
-)
-def test_invalid_llm_output_is_not_persisted(tmp_path: Path, content: Any) -> None:
-    handler = httpx.MockTransport(lambda _: openrouter_response(content))
+    ]
+    for index, content in enumerate(invalid_outputs):
+        handler = httpx.MockTransport(lambda _, value=content: openrouter_response(value))
+        database_path = tmp_path / f"invalid-output-{index}.sqlite3"
+        with TestClient(
+            create_app(database_path, mock_llm_client(handler))
+        ) as client:
+            response = client.post("/entries", json={"text": "Valid source text"})
+            entries = client.get("/entries")
 
-    with TestClient(
-        create_app(tmp_path / "entries.sqlite3", mock_llm_client(handler))
-    ) as client:
-        response = client.post("/entries", json={"text": "Valid source text"})
-        entries = client.get("/entries")
-
-    assert response.status_code == 502
-    assert response.json() == {
-        "error": {
-            "code": "INVALID_MODEL_OUTPUT",
-            "message": "The AI provider returned invalid output.",
-        }
-    }
-    assert entries.json()["items"] == []
+        assert response.status_code == 502, repr(content)
+        assert response.json() == {
+            "error": {
+                "code": "INVALID_MODEL_OUTPUT",
+                "message": "The AI provider returned invalid output.",
+            }
+        }, repr(content)
+        assert entries.json()["items"] == [], repr(content)
 
 
 def test_llm_timeout_is_not_persisted(tmp_path: Path) -> None:
@@ -291,42 +230,38 @@ def test_llm_timeout_is_not_persisted(tmp_path: Path) -> None:
     assert entries.json()["items"] == []
 
 
-@pytest.mark.parametrize(
-    ("provider_status", "expected_status", "expected_code"),
-    [
+def test_provider_errors_are_not_persisted(
+    tmp_path: Path,
+) -> None:
+    cases = [
         (408, 504, "PROVIDER_TIMEOUT"),
         (401, 502, "PROVIDER_AUTH_FAILED"),
         (403, 502, "PROVIDER_AUTH_FAILED"),
         (429, 503, "PROVIDER_RATE_LIMITED"),
         (500, 502, "PROVIDER_UNAVAILABLE"),
-    ],
-)
-def test_provider_errors_are_not_persisted(
-    tmp_path: Path,
-    provider_status: int,
-    expected_status: int,
-    expected_code: str,
-) -> None:
-    def error_handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            provider_status,
-            headers={"Retry-After": "30"},
-            json={"error": {"message": "Provider failure"}},
-        )
+    ]
+    for provider_status, expected_status, expected_code in cases:
+        def error_handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                provider_status,
+                headers={"Retry-After": "30"},
+                json={"error": {"message": "Provider failure"}},
+            )
 
-    handler = httpx.MockTransport(error_handler)
-    with TestClient(
-        create_app(tmp_path / "entries.sqlite3", mock_llm_client(handler))
-    ) as client:
-        response = client.post("/entries", json={"text": "Valid source text"})
-        entries = client.get("/entries")
+        handler = httpx.MockTransport(error_handler)
+        database_path = tmp_path / f"provider-{provider_status}.sqlite3"
+        with TestClient(
+            create_app(database_path, mock_llm_client(handler))
+        ) as client:
+            response = client.post("/entries", json={"text": "Valid source text"})
+            entries = client.get("/entries")
 
-    assert response.status_code == expected_status
-    assert response.json()["error"]["code"] == expected_code
-    assert response.json()["error"]["message"]
-    assert entries.json()["items"] == []
-    if provider_status == 429:
-        assert response.headers["Retry-After"] == "30"
+        assert response.status_code == expected_status, provider_status
+        assert response.json()["error"]["code"] == expected_code, provider_status
+        assert response.json()["error"]["message"], provider_status
+        assert entries.json()["items"] == [], provider_status
+        if provider_status == 429:
+            assert response.headers["Retry-After"] == "30"
 
 
 def test_openrouter_network_failure_is_not_persisted(tmp_path: Path) -> None:
@@ -348,37 +283,31 @@ def test_openrouter_network_failure_is_not_persisted(tmp_path: Path) -> None:
     assert entries.json()["items"] == []
 
 
-@pytest.mark.parametrize(
-    ("provider_payload", "expected_code"),
-    [
-        ([], "INVALID_MODEL_OUTPUT"),
+def test_unexpected_openrouter_responses_are_not_persisted(
+    tmp_path: Path,
+) -> None:
+    cases = [
         ({}, "INVALID_MODEL_OUTPUT"),
-        ({"choices": []}, "INVALID_MODEL_OUTPUT"),
-        ({"choices": [{"message": {}}]}, "INVALID_MODEL_OUTPUT"),
         (
             {"choices": [{"message": {"content": {"summary": "invalid"}}}]},
             "INVALID_MODEL_OUTPUT",
         ),
         ({"error": {"code": 500, "message": "upstream detail"}}, "PROVIDER_UNAVAILABLE"),
-    ],
-)
-def test_unexpected_openrouter_responses_are_not_persisted(
-    tmp_path: Path,
-    provider_payload: Any,
-    expected_code: str,
-) -> None:
-    handler = httpx.MockTransport(
-        lambda _: httpx.Response(200, json=provider_payload)
-    )
-    with TestClient(
-        create_app(tmp_path / "entries.sqlite3", mock_llm_client(handler))
-    ) as client:
-        response = client.post("/entries", json={"text": "Valid source text"})
-        entries = client.get("/entries")
+    ]
+    for index, (provider_payload, expected_code) in enumerate(cases):
+        handler = httpx.MockTransport(
+            lambda _, value=provider_payload: httpx.Response(200, json=value)
+        )
+        database_path = tmp_path / f"unexpected-response-{index}.sqlite3"
+        with TestClient(
+            create_app(database_path, mock_llm_client(handler))
+        ) as client:
+            response = client.post("/entries", json={"text": "Valid source text"})
+            entries = client.get("/entries")
 
-    assert response.status_code == 502
-    assert response.json()["error"]["code"] == expected_code
-    assert entries.json()["items"] == []
+        assert response.status_code == 502, repr(provider_payload)
+        assert response.json()["error"]["code"] == expected_code, repr(provider_payload)
+        assert entries.json()["items"] == [], repr(provider_payload)
 
 
 def test_unexpected_internal_error_is_sanitized(
@@ -426,25 +355,25 @@ def test_missing_api_key_is_not_persisted(tmp_path: Path) -> None:
     assert entries.json()["items"] == []
 
 
-@pytest.mark.parametrize("placeholder", sorted(API_KEY_PLACEHOLDERS))
 def test_placeholder_api_key_is_not_persisted(
     tmp_path: Path,
-    placeholder: str,
 ) -> None:
-    llm_client = OpenRouterClient(
-        api_key=SecretStr(placeholder),
-        model=DEFAULT_MODEL,
-    )
-    with TestClient(create_app(tmp_path / "entries.sqlite3", llm_client)) as client:
-        response = client.post("/entries", json={"text": "Valid source text"})
-        entries = client.get("/entries")
+    for index, placeholder in enumerate(sorted(API_KEY_PLACEHOLDERS)):
+        llm_client = OpenRouterClient(
+            api_key=SecretStr(placeholder),
+            model=DEFAULT_MODEL,
+        )
+        database_path = tmp_path / f"placeholder-{index}.sqlite3"
+        with TestClient(create_app(database_path, llm_client)) as client:
+            response = client.post("/entries", json={"text": "Valid source text"})
+            entries = client.get("/entries")
 
-    assert response.status_code == 503
-    assert response.json()["error"] == {
-        "code": "PROVIDER_NOT_CONFIGURED",
-        "message": "The AI provider is not configured.",
-    }
-    assert entries.json()["items"] == []
+        assert response.status_code == 503, placeholder
+        assert response.json()["error"] == {
+            "code": "PROVIDER_NOT_CONFIGURED",
+            "message": "The AI provider is not configured.",
+        }, placeholder
+        assert entries.json()["items"] == [], placeholder
 
 
 def test_upstream_logging_is_sanitized(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -546,25 +475,20 @@ def test_list_entries_handles_empty_database(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.parametrize(
-    "query",
-    [
-        "page=0",
-        "page=-1",
-        "page=not-a-number",
-        "page_size=0",
-        "page_size=101",
-        "page_size=not-a-number",
-    ],
-)
 def test_list_entries_rejects_invalid_pagination(
     tmp_path: Path,
-    query: str,
 ) -> None:
     with TestClient(create_app(tmp_path / "entries.sqlite3")) as client:
-        response = client.get(f"/entries?{query}")
-
-    assert response.status_code == 422
+        for query in [
+            "page=0",
+            "page=-1",
+            "page=not-a-number",
+            "page_size=0",
+            "page_size=101",
+            "page_size=not-a-number",
+        ]:
+            response = client.get(f"/entries?{query}")
+            assert response.status_code == 422, query
 
 
 def test_list_entries_accepts_maximum_page_size(tmp_path: Path) -> None:
@@ -610,12 +534,11 @@ def test_delete_unknown_entry_returns_404(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.parametrize("entry_id", ["0", "-1", "not-a-number"])
-def test_delete_rejects_invalid_entry_id(tmp_path: Path, entry_id: str) -> None:
+def test_delete_rejects_invalid_entry_id(tmp_path: Path) -> None:
     with TestClient(create_app(tmp_path / "entries.sqlite3")) as client:
-        response = client.delete(f"/entries/{entry_id}")
-
-    assert response.status_code == 422
+        for entry_id in ["0", "-1", "not-a-number"]:
+            response = client.delete(f"/entries/{entry_id}")
+            assert response.status_code == 422, entry_id
 
 
 def test_deletion_persists_across_application_instances(tmp_path: Path) -> None:

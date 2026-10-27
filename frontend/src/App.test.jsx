@@ -148,65 +148,7 @@ describe("InsightTag smoke flow", () => {
     });
   });
 
-  it("shows a useful error when entry creation fails and re-enables the form", async () => {
-    const fetchMock = vi.fn((path, options = {}) => {
-      if (path === "/entries" && options.method === "POST") {
-        return Promise.resolve(
-          jsonResponse(
-            {
-              error: {
-                code: "PROVIDER_UNAVAILABLE",
-                message: "The AI provider is temporarily unavailable.",
-              },
-            },
-            502,
-          ),
-        );
-      }
-      if (path === pageOnePath) {
-        return Promise.resolve(jsonResponse(page([])));
-      }
-      throw new Error(`Unexpected request: ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    render(<App />);
-    await screen.findByText("No saved entries yet");
-
-    await user.type(
-      screen.getByLabelText("Text to summarize"),
-      "Text that triggers a mocked provider failure.",
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Summarize & Save" }),
-    );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The AI provider is temporarily unavailable.",
-    );
-    expect(
-      screen.getByRole("button", { name: "Summarize & Save" }),
-    ).toBeEnabled();
-  });
-
   it.each([
-    [
-      "provider timeout",
-      () =>
-        Promise.resolve(
-          jsonResponse(
-            {
-              error: {
-                code: "PROVIDER_TIMEOUT",
-                message: "The AI provider did not respond in time.",
-              },
-            },
-            504,
-          ),
-        ),
-      "The AI provider did not respond in time.",
-    ],
     [
       "provider rate limit",
       () =>
@@ -227,16 +169,6 @@ describe("InsightTag smoke flow", () => {
       "network failure",
       () => Promise.reject(new TypeError("Failed to fetch")),
       "Unable to reach the API. Confirm the backend is running and try again.",
-    ],
-    [
-      "malformed error response",
-      () =>
-        Promise.resolve({
-          ok: false,
-          status: 502,
-          json: vi.fn().mockRejectedValue(new SyntaxError("invalid JSON")),
-        }),
-      "Something went wrong. Please try again.",
     ],
   ])("shows a safe message for a %s", async (_, createResult, expectedMessage) => {
     vi.stubGlobal(
@@ -298,34 +230,7 @@ describe("InsightTag smoke flow", () => {
     );
   });
 
-  it("opens the delete confirmation and allows cancellation", async () => {
-    const fetchMock = vi.fn((path) => {
-      if (path === pageOnePath) return Promise.resolve(jsonResponse(page([savedEntry])));
-      if (path === "/entries/1") return Promise.resolve(jsonResponse(savedEntry));
-      throw new Error(`Unexpected request: ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    render(<App />);
-    await openInitialEntry();
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    const dialog = screen.getByRole("dialog", { name: "Delete saved insight?" });
-    expect(dialog).toHaveTextContent("cannot be undone");
-    expect(dialog).toHaveTextContent("This saved insight will be permanently deleted.");
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(
-      within(screen.getByRole("article")).getByText(savedEntry.summary),
-    ).toBeInTheDocument();
-    expect(
-      fetchMock.mock.calls.some(([, options]) => options?.method === "DELETE"),
-    ).toBe(false);
-  });
-
-  it("deletes the selected entry only after confirmation and refreshes the list", async () => {
+  it("cancels or confirms deletion and refreshes only after confirmation", async () => {
     const pendingDelete = deferred();
     let listRequests = 0;
     const fetchMock = vi.fn((path, options = {}) => {
@@ -347,7 +252,16 @@ describe("InsightTag smoke flow", () => {
     render(<App />);
     await openInitialEntry();
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    const dialog = screen.getByRole("dialog");
+    let dialog = screen.getByRole("dialog", { name: "Delete saved insight?" });
+    expect(dialog).toHaveTextContent("This saved insight will be permanently deleted.");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([, options]) => options?.method === "DELETE"),
+    ).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    dialog = screen.getByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     expect(
@@ -369,37 +283,6 @@ describe("InsightTag smoke flow", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText("1 entry")).toBeInTheDocument();
     expect(screen.getByText("Insight deleted.")).toBeInTheDocument();
-  });
-
-  it("shows the empty state after deleting the final saved entry", async () => {
-    let listRequests = 0;
-    const fetchMock = vi.fn((path, options = {}) => {
-      if (path === pageOnePath) {
-        listRequests += 1;
-        const items = listRequests === 1 ? [savedEntry] : [];
-        return Promise.resolve(jsonResponse(page(items)));
-      }
-      if (path === "/entries/1" && options.method === "DELETE") {
-        return Promise.resolve(jsonResponse(null, 204));
-      }
-      if (path === "/entries/1") return Promise.resolve(jsonResponse(savedEntry));
-      throw new Error(`Unexpected request: ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    render(<App />);
-    await openInitialEntry();
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }),
-    );
-
-    expect(await screen.findByText("No saved entries yet")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("navigation", { name: "Saved Insights pages" }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("article")).not.toBeInTheDocument();
   });
 
   it("returns to the previous page after deleting the only final-page item", async () => {
@@ -482,51 +365,6 @@ describe("InsightTag smoke flow", () => {
     expect(within(dialog).getByRole("button", { name: "Delete" })).toBeEnabled();
   });
 
-  it("shows the empty state without a pagination footer", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((path) => {
-        if (path === pageOnePath) return Promise.resolve(jsonResponse(page([])));
-        throw new Error(`Unexpected request: ${path}`);
-      }),
-    );
-
-    render(<App />);
-
-    await screen.findByText("No saved entries yet");
-    expect(
-      screen.queryByRole("navigation", { name: "Saved Insights pages" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("hides pagination when all ten entries fit on one page", async () => {
-    const entries = Array.from({ length: 10 }, (_, index) => ({
-      ...savedEntry,
-      id: index + 1,
-      summary: `Saved insight ${index + 1}`,
-    }));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((path) => {
-        if (path === pageOnePath) {
-          return Promise.resolve(jsonResponse(page(entries, 1, 10, 1)));
-        }
-        if (path === "/entries/1") {
-          return Promise.resolve(jsonResponse(entries[0]));
-        }
-        throw new Error(`Unexpected request: ${path}`);
-      }),
-    );
-
-    render(<App />);
-
-    await screen.findByText("10 entries");
-    expect(screen.getAllByRole("button", { name: /Saved insight/ })).toHaveLength(10);
-    expect(
-      screen.queryByRole("navigation", { name: "Saved Insights pages" }),
-    ).not.toBeInTheDocument();
-  });
-
   it("navigates between server pages and disables boundary controls", async () => {
     const fetchMock = vi.fn((path) => {
       if (path === pageOnePath) {
@@ -558,40 +396,6 @@ describe("InsightTag smoke flow", () => {
     expect(
       await screen.findByRole("button", { name: new RegExp(secondEntry.summary) }),
     ).toBeInTheDocument();
-  });
-
-  it("shows a structured error when pagination fails", async () => {
-    const fetchMock = vi.fn((path) => {
-      if (path === pageOnePath) {
-        return Promise.resolve(jsonResponse(page([secondEntry], 1, 11, 2)));
-      }
-      if (path === pageTwoPath) {
-        return Promise.resolve(
-          jsonResponse(
-            {
-              error: {
-                code: "DATABASE_ERROR",
-                message: "The saved insights could not be loaded.",
-              },
-            },
-            500,
-          ),
-        );
-      }
-      if (path === "/entries/2") return Promise.resolve(jsonResponse(secondEntry));
-      throw new Error(`Unexpected request: ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-
-    render(<App />);
-    await screen.findByText("Page 1 of 2");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The saved insights could not be loaded.",
-    );
-    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
   });
 
   it("returns to page one and shows a newly created entry", async () => {

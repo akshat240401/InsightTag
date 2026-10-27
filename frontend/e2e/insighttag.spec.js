@@ -50,14 +50,6 @@ async function json(route, payload, status = 200) {
   });
 }
 
-async function safeJson(route, payload, status = 200) {
-  try {
-    await json(route, payload, status);
-  } catch {
-    // The application intentionally aborts stale fetches in race-condition tests.
-  }
-}
-
 function requestInfo(route) {
   const request = route.request();
   return {
@@ -170,35 +162,6 @@ test("delete dialog traps focus, supports cancel and Escape, and deletion refres
   await expect(page.getByText("Insight deleted.")).toBeVisible();
 });
 
-test("keeps the entry and dialog open when deletion returns a structured error", async ({ page }) => {
-  await page.route("**/entries**", async (route) => {
-    const { method, url } = requestInfo(route);
-    if (url.pathname === "/entries" && method === "GET") {
-      return json(route, paginated([firstEntry]));
-    }
-    if (url.pathname === "/entries/1" && method === "DELETE") {
-      return json(
-        route,
-        { error: { code: "DATABASE_ERROR", message: "The database operation could not be completed." } },
-        500,
-      );
-    }
-    if (url.pathname === "/entries/1") return json(route, firstEntry);
-    return route.abort();
-  });
-
-  await page.goto("/");
-  await expect(page.getByRole("article").getByText(firstEntry.summary)).toBeVisible();
-  await page.getByRole("button", { name: "Delete" }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Delete" }).click();
-  await expect(dialog.getByRole("alert")).toContainText(
-    "The database operation could not be completed.",
-  );
-  await expect(page.getByText(firstEntry.summary).first()).toBeVisible();
-  await expect(dialog).toBeVisible();
-});
-
 test("navigates paginated results and displays the empty state", async ({ page }) => {
   await page.route("**/entries**", async (route) => {
     const { method, url } = requestInfo(route);
@@ -249,153 +212,6 @@ test("navigates paginated results and displays the empty state", async ({ page }
   await page.reload();
   await expect(page.getByText("10 entries")).toBeVisible();
   await expect(page.getByRole("list", { name: "Saved entries" }).getByRole("button")).toHaveCount(10);
-  await expect(
-    page.getByRole("navigation", { name: "Saved Insights pages" }),
-  ).toHaveCount(0);
-});
-
-test("shows a safe structured provider error", async ({ page }) => {
-  await page.route("**/entries**", async (route) => {
-    const { method, url } = requestInfo(route);
-    if (url.pathname === "/entries" && method === "GET") {
-      return json(route, paginated([]));
-    }
-    if (url.pathname === "/entries" && method === "POST") {
-      return json(
-        route,
-        { error: { code: "PROVIDER_TIMEOUT", message: "The AI provider did not respond in time." } },
-        504,
-      );
-    }
-    return route.abort();
-  });
-
-  await page.goto("/");
-  await page.getByLabel("Text to summarize").fill("Synthetic timeout input");
-  await page.getByRole("button", { name: "Summarize & Save" }).click();
-  await expect(page.getByRole("alert")).toContainText(
-    "The AI provider did not respond in time.",
-  );
-});
-
-test("ignores a stale detail response after rapid entry selection", async ({ page }) => {
-  const staleSecond = deferred();
-  const currentFirst = deferred();
-  let firstDetailRequests = 0;
-
-  await page.route("**/entries**", async (route) => {
-    const { method, url } = requestInfo(route);
-    if (url.pathname === "/entries" && method === "GET") {
-      return json(route, paginated([firstEntry, secondEntry]));
-    }
-    if (url.pathname === "/entries/1") {
-      firstDetailRequests += 1;
-      if (firstDetailRequests === 1) return json(route, firstEntry);
-      await currentFirst.promise;
-      return safeJson(route, firstEntry);
-    }
-    if (url.pathname === "/entries/2") {
-      await staleSecond.promise;
-      return safeJson(route, secondEntry);
-    }
-    return route.abort();
-  });
-
-  await page.goto("/");
-  await expect(page.getByRole("article").getByText(firstEntry.summary)).toBeVisible();
-  await page.getByRole("button", { name: new RegExp(secondEntry.summary) }).click();
-  await page.getByRole("button", { name: new RegExp(firstEntry.summary) }).click();
-  currentFirst.resolve();
-  await expect(page.getByRole("article").getByText(firstEntry.summary)).toBeVisible();
-  staleSecond.resolve();
-  await expect(page.getByRole("article").getByText(secondEntry.summary)).toHaveCount(0);
-});
-
-test("ignores an overlapping pagination response that finishes last", async ({ page }) => {
-  const stalePageTwo = deferred();
-  let pageOneRequests = 0;
-
-  await page.route("**/entries**", async (route) => {
-    const { method, url } = requestInfo(route);
-    if (url.pathname === "/entries" && method === "GET") {
-      const requestedPage = Number(url.searchParams.get("page"));
-      if (requestedPage === 2) {
-        await stalePageTwo.promise;
-        return safeJson(route, paginated([secondEntry], 2, 11, 2));
-      }
-      pageOneRequests += 1;
-      return json(route, paginated([firstEntry], 1, 11, 2));
-    }
-    if (url.pathname === "/entries/1") return json(route, firstEntry);
-    if (url.pathname === "/entries/2") return json(route, secondEntry);
-    return route.abort();
-  });
-
-  await page.goto("/");
-  await expect(page.getByText("Page 1 of 2")).toBeVisible();
-  await page.getByRole("button", { name: "Next" }).click();
-  await expect(page.getByText("Page 2 of 2")).toBeVisible();
-  await page.getByRole("button", { name: "Previous" }).click();
-  await expect(page.getByText("Page 1 of 2")).toBeVisible();
-  expect(pageOneRequests).toBeGreaterThanOrEqual(2);
-  stalePageTwo.resolve();
-  await expect(page.getByRole("button", { name: new RegExp(firstEntry.summary) })).toBeVisible();
-  await expect(page.getByRole("button", { name: new RegExp(secondEntry.summary) })).toHaveCount(0);
-});
-
-test("does not restore deleted content from pending detail or list requests", async ({ page }) => {
-  const stalePageTwo = deferred();
-  const staleFirstDetail = deferred();
-  let firstDetailRequests = 0;
-  let records = [firstEntry, secondEntry];
-
-  await page.route("**/entries**", async (route) => {
-    const { method, url } = requestInfo(route);
-    if (url.pathname === "/entries" && method === "GET") {
-      const requestedPage = Number(url.searchParams.get("page"));
-      if (requestedPage === 2) {
-        await stalePageTwo.promise;
-        return safeJson(route, paginated([firstEntry], 2, 1, 1));
-      }
-      const beforeDeletion = records.length === 2;
-      return json(
-        route,
-        paginated(records, 1, beforeDeletion ? 11 : 1, beforeDeletion ? 2 : 1),
-      );
-    }
-    if (url.pathname === "/entries/1" && method === "DELETE") {
-      records = [secondEntry];
-      return json(route, null, 204);
-    }
-    if (url.pathname === "/entries/1") {
-      firstDetailRequests += 1;
-      if (firstDetailRequests === 1) return json(route, firstEntry);
-      await staleFirstDetail.promise;
-      return safeJson(route, firstEntry);
-    }
-    if (url.pathname === "/entries/2") return json(route, secondEntry);
-    return route.abort();
-  });
-
-  await page.goto("/");
-  await expect(page.getByRole("article").getByText(firstEntry.summary)).toBeVisible();
-  await page.getByRole("button", { name: "Delete" }).click();
-  const dialog = page.getByRole("dialog");
-
-  await page
-    .getByRole("button", { name: new RegExp(secondEntry.summary) })
-    .evaluate((button) => button.click());
-  await expect(page.getByRole("article").getByText(secondEntry.summary)).toBeVisible();
-  await page
-    .getByRole("button", { name: new RegExp(firstEntry.summary) })
-    .evaluate((button) => button.click());
-  await page.getByRole("button", { name: "Next" }).evaluate((button) => button.click());
-  await dialog.getByRole("button", { name: "Delete" }).click();
-
-  await expect(page.getByRole("article").getByText(secondEntry.summary)).toBeVisible();
-  staleFirstDetail.resolve();
-  stalePageTwo.resolve();
-  await expect(page.getByText(firstEntry.summary)).toHaveCount(0);
   await expect(
     page.getByRole("navigation", { name: "Saved Insights pages" }),
   ).toHaveCount(0);

@@ -8,7 +8,7 @@ InsightTag turns notes, articles, and meeting transcripts into concise AI summar
 
 ### Prerequisites and configuration
 
-Install Python 3.10+, Node.js `^20.19.0` or `>=22.12.0`, and obtain an OpenRouter API key. From the repository root, create the ignored local environment file:
+Requires Python 3.10+, Node.js `^20.19.0` or `>=22.12.0`, and an OpenRouter key. From the repository root:
 
 **Windows PowerShell**
 
@@ -36,7 +36,7 @@ OPENROUTER_API_KEY=your-real-openrouter-api-key
 LLM_MODEL=openrouter/free
 ```
 
-Both configurations require a valid OpenRouter API key. The recommended `openai/gpt-4.1-mini` model requires available paid API credits and offers more consistent availability for evaluation. Alternatively, `openrouter/free` can be used without paid model credits, although model availability and rate limits may vary. Both configurations have been successfully tested through real API requests. API credentials remain backend-only, and `.env` is excluded from Git.
+Both require a valid key and passed live checks. GPT-4.1 Mini uses paid credits and remains recommended. The free router needs no paid model credits, but availability and rate limits vary. Credentials stay backend-only; `.env` is Git-ignored.
 
 ### Backend
 
@@ -70,7 +70,7 @@ npm ci
 npm run dev
 ```
 
-Open the Vite URL, normally `http://localhost:5173`. The proxy forwards `/entries` to FastAPI; credentials never reach the browser.
+Open the Vite URL, normally `http://localhost:5173`. Its `/entries` proxy keeps credentials out of the browser.
 
 ### API behavior
 
@@ -102,7 +102,7 @@ npm run test:e2e
 npm run build
 ```
 
-Final results: **88 automated tests passed** - 56 pytest, 21 Vitest/React Testing Library, and 11 Playwright Chromium - and the production build succeeded. Tests mock external boundaries; live OpenRouter checks verified both models. See the [verification report](docs/verification.md) for history and limitations.
+Current results: **44 automated tests passed**: 25 pytest, 13 Vitest/React Testing Library, and 6 Playwright Chromium; the production build succeeded. Tests mock external boundaries. Genuine OpenRouter checks verified both models. See the [verification report](docs/verification.md) for history and limitations.
 
 ## Engineering decisions
 

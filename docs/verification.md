@@ -5,15 +5,15 @@ This document records verification performed for InsightTag, a React, FastAPI, O
 
 ## 1. Automated Verification
 
-The following results include the completed Phase 3 browser and accessibility verification on October 26, 2026.
+The current retained-suite results include the completed Phase 3 browser and accessibility verification on October 26, 2026. The explicitly labeled Stage 5 row is historical evidence from the earlier submission audit.
 
 | Check | Command or Method | Result |
 |---|---|---|
-| Backend API and integration tests | `python -m pytest -q` from `backend/` | **56 passed, 1 warning** |
+| Backend API and integration tests | `python -m pytest -q` from `backend/` | **25 passed, 1 warning** |
 | Earlier Stage 5 fresh-environment audit | Install `requirements-dev.txt` in a temporary virtual environment and run pytest | **19 passed, 1 warning** |
 | Python dependency consistency | `pip check` in the temporary environment | **Passed** |
-| Frontend component tests | `npm test` from `frontend/` | **21 passed, 0 failed** |
-| Chromium browser tests | `npm run test:e2e` from `frontend/` | **11 passed, 0 failed** |
+| Frontend component tests | `npm test` from `frontend/` | **13 passed, 0 failed** |
+| Chromium browser tests | `npm run test:e2e` from `frontend/` | **6 passed, 0 failed** |
 | Frontend production build | `npm run build` from `frontend/` | **Passed** |
 | Frontend lockfile validation | `npm ci --dry-run --ignore-scripts` | **Passed** |
 
@@ -21,11 +21,11 @@ The pytest warning originated from a third-party Starlette `TestClient` deprecat
 
 Backend tests mock the external OpenRouter boundary while exercising the verified request payload, actual FastAPI routing, Pydantic validation, response parsing, structured errors, and file-backed SQLite persistence.
 
-Both `openai/gpt-4.1-mini` and `openrouter/free` are covered with mocked success, malformed-output, rate-limit, and upstream-failure responses. Free-router requests add `provider.require_parameters: true` so OpenRouter selects endpoints that support the submitted JSON Schema and other request parameters. This does not change the default model payload.
+Both `openai/gpt-4.1-mini` and `openrouter/free` are covered for request construction and mocked success. Shared tests exercise malformed output, rate limits, authentication, timeouts, and upstream failures because response validation and error mapping are model-independent. Free-router requests add `provider.require_parameters: true`; the default-model payload remains unchanged.
 
-The twenty-one Vitest/React Testing Library component tests mock `fetch` while covering the original submission flow, structured/validation/network errors, deletion, pagination visibility, empty state, mutation refreshes, and stale-response protection. These automated tests do not contact the live backend or an LLM provider.
+The thirteen Vitest/React Testing Library component tests mock `fetch` while covering the original submission flow, structured/validation/network errors, deletion, pagination visibility, empty state, mutation refreshes, and stale-response protection. These automated tests do not contact the live backend or an LLM provider.
 
-The eleven Playwright tests run the application in headless Chromium with mocked API routes. They cover browser-level submission and selection, delete confirmation/cancellation/failure, pagination and empty states, structured errors, deterministic stale-response races, keyboard focus management, and responsive checks at 1440 × 900 and 375 × 812. They do not contact FastAPI, SQLite, or OpenRouter.
+The six Playwright tests run the application in headless Chromium with mocked API routes. They cover browser-level submission and selection, deletion, pagination and empty states, keyboard focus management, and responsive checks at 1440 × 900 and 375 × 812. They do not contact FastAPI, SQLite, or OpenRouter.
 
 ## 2. Functional Test Coverage
 
@@ -49,7 +49,7 @@ The automated tests and application inspection cover:
 - Sanitized database-error handling for deletion.
 - Frontend delete confirmation, cancellation, success and failure recovery, and invalid-page correction.
 - Request-generation and cancellation guards for stale detail, pagination, and post-mutation list responses.
-- Browser keyboard navigation and accessible labels for the primary controls and saved-entry navigation.
+- Browser-accessible labels for the primary controls and saved-entry navigation.
 - Delete-dialog initial focus, Tab/Shift+Tab trapping, Escape dismissal, and trigger-focus restoration.
 - Browser viewport checks for horizontal overflow and dialog clipping on desktop and mobile dimensions.
 
@@ -100,7 +100,7 @@ The screenshot was captured from the working application, not generated or mocke
 | Create entry API | `POST /entries` |
 | List saved entries API | `GET /entries` |
 | Retrieve entry detail API | `GET /entries/{entry_id}` |
-| Delete saved entry API | `DELETE /entries/{entry_id}` and parameterized SQLite deletion |
+| Delete saved entry API | `DELETE /entries/{entry_id}` and parameterized SQL deletion |
 | Server-side pagination | `GET /entries?page=&page_size=` with `COUNT(*)`, `LIMIT`, and `OFFSET` |
 | Input validation | `backend/app/schemas.py` |
 | Real LLM integration | `backend/app/openrouter.py`; manual OpenRouter verification |
@@ -109,7 +109,7 @@ The screenshot was captured from the working application, not generated or mocke
 | Persistent original text and AI output | `backend/app/database.py` and SQLite |
 | Persistence across restarts | Automated application-instance persistence tests and manual verification |
 | Graceful AI failure handling | `backend/app/errors.py`, OpenRouter exception mapping, and provider-failure tests |
-| Meaningful automated testing | 56 backend tests, 21 frontend component tests, and 11 Chromium tests in `frontend/e2e/insighttag.spec.js` |
+| Meaningful automated testing | 25 backend tests, 13 frontend component tests, and 6 Chromium tests in `frontend/e2e/insighttag.spec.js` |
 | Safe environment configuration | `.env.example`, `.gitignore`, and backend configuration |
 | Local setup instructions | `README.md` |
 | Six engineering decision answers | `README.md`, Engineering Decisions section |
@@ -228,7 +228,7 @@ npm run test:e2e
 npm run build
 ```
 
-The documented verification baseline is **56 passing backend tests**, **21 passing frontend component tests**, **11 passing Chromium tests**, and a successful frontend production build.
+The documented verification baseline is **25 passing backend tests**, **13 passing frontend component tests**, **6 passing Chromium tests**, and a successful frontend production build.
 
 ## 6. Configuration and Security Review
 
@@ -260,7 +260,7 @@ InsightTag intentionally keeps its architecture small and focused.
 - **Authentication:** The prototype does not implement user accounts, authorization, or per-user data isolation.
 - **Sensitive information:** Submitted content may be transmitted to OpenRouter and its selected model provider. Real confidential financial data should not be used without approved controls.
 - **Retries:** Automatic provider retries and idempotency keys are not implemented. A lost response may leave uncertainty about whether an entry was saved; check Saved Insights before resubmitting.
-- **Frontend testing:** Twenty-one Vitest component tests and eleven Playwright Chromium tests cover core interactions, structured failures, deletion, pagination, deterministic stale-response cases, and dialog accessibility using mocked network requests.
+- **Frontend testing:** Thirteen Vitest component tests cover core interactions, structured failures, deletion, pagination, and deterministic stale-response cases using mocked network requests; six Playwright Chromium tests cover critical workflows, dialog accessibility, and responsive layout.
 - **Mobile testing:** Playwright checked Chromium at 375 × 812 with no horizontal overflow and a viewport-contained dialog. A physical-device or cross-browser test was not performed.
 - **Production infrastructure:** Deployment, CI, monitoring, rate limiting, encryption policies, and data-retention enforcement are future improvements rather than implemented features.
 
@@ -268,7 +268,7 @@ The project's test results demonstrate functional behavior and error handling, n
 
 ## 8. Verification Summary
 
-The final verification reported **56 passing backend tests**, **21 passing frontend component tests**, **11 passing Chromium browser tests**, and a successful frontend build. The browser suite verified core workflows, deterministic race protection, dialog keyboard behavior, and desktop/mobile responsiveness with mocked API routes. The existing third-party Starlette/AnyIO deprecation warning remains non-fatal.
+The current retained suite has **25 passing backend tests**, **13 passing frontend component tests**, **6 passing Chromium browser tests**, and a successful frontend build. Vitest verifies deterministic race protection; the browser suite verifies core workflows, dialog keyboard behavior, and desktop/mobile responsiveness with mocked API routes. The existing third-party Starlette/AnyIO deprecation warning remains non-fatal.
 
 A prior manual browser session verified real OpenRouter summarization, three-tag generation, saved-entry retrieval, and persistence.
 
